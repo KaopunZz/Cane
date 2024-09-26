@@ -1,15 +1,14 @@
 import streamlit as st
+import folium
 from streamlit_folium import folium_static
-import folium  # Add this line
 import pandas as pd
 import random
+import geopandas
 import plotly.express as px
 import numpy as np
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Embedding, Dropout
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from tensorflow.keras.utils import to_categorical
-from sklearn.model_selection import train_test_split
+import os
+from datetime import datetime
+
 
 # All 77 Thai provinces with their approximate coordinates
 THAI_PROVINCES = {
@@ -93,83 +92,38 @@ THAI_PROVINCES = {
 }
 
 def read_shapefile(uploaded_file):
-    # Read the uploaded zipfile
-    zip_file = zipfile.ZipFile(uploaded_file)
-    
-    # Find the .shp file in the zipfile
-    shp_file_name = next(name for name in zip_file.namelist() if name.endswith('.shp'))
-    
-    # Read the shapefile using geopandas
-    with zip_file.open(shp_file_name) as shp_file:
+    # Create a temporary directory to extract the zip file
+    with Centroid_Area.TemporaryDirectory() as tmpdirname:
+        with zipfile.ZipFile(uploaded_file, 'r') as zip_ref:
+            zip_ref.extractall(tmpdirname)
+        
+        # Find the .shp file in the extracted directory
+        shp_file = next(Path(tmpdirname).glob('*.shp'))
+        
+        # Read the shapefile using geopandas
         gdf = gpd.read_file(shp_file)
     
     return gdf
-def generate_sample_data():
-    areas = list(THAI_PROVINCES.keys())
-    risks = [random.uniform(0, 100) for _ in range(len(areas))]
-    days = [random.randint(1, 16) for _ in range(len(areas))]
-    sizes = [random.randint(100, 1000) for _ in range(len(areas))]
-    carbon = [size * 8 for size in sizes]  # 8 tons of carbon per rai
-    return pd.DataFrame({
-        'Area': areas,
-        'Risk': risks,
-        'Latitude': [THAI_PROVINCES[area][0] for area in areas],
-        'Longitude': [THAI_PROVINCES[area][1] for area in areas],
-        'Day': days,
-        'Size': sizes,
-        'Carbon': carbon
-    })
 
-def LSTM_model():
-    max_len = 5
-    model = Sequential()
-    model.add(Embedding(input_dim=10, output_dim=8, input_length=max_len))  # input_dim: ขนาดของ vocab, output_dim: ขนาดของ embedding
-    model.add(LSTM(64, return_sequences=True))  # LSTM layer
-    model.add(LSTM(32))  # LSTM layer
-    model.add(Dense(2, activation='softmax'))  # Output layer สำหรับ 2 คลาส
-    model.compile(optimizer='adam', loss='categorical_crossentropy', metrics=['accuracy'])
-    return model
-
-def model(df):
-    X = df[['ndvi_day1', 'ndvi_day2', 'ndvi_day3', ..., 'ndvi_day2x']]
-    y = df['burning_days']
-
-    X = pad_sequences(X, maxlen=max_len)
-    y = to_categorical(y, num_classes=2)
-
-    model = LSTM_model()
-    model.fit(X, y, epochs=5, batch_size=1, validation_split=0.2)
-
-    prediction = model.predict(X)
-    print("Predictions:", prediction)
-
-def model_evaluation(df):
-    X = df[['NDVI', 'EVI', 'LAI', 'SAVI', 'MSAVI']]
-    y = df['burning_days']
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
-    #X_train = np.array([[1, 2, 3, 4], [2, 3, 4, 5], [3, 4, 5, 6]])
-    #y_train = np.array([0, 1, 0])  # ตัวอย่าง label สำหรับ 2 คลาส (0 และ 1)
-    #X_test = np.array([[1, 2, 3, 4], [4, 5, 6, 7]])
-    #y_test = np.array([0, 1])
-    #padding
-    max_len = 5
-    X_train = pad_sequences(X_train, maxlen=max_len)
-    X_test = pad_sequences(X_test, maxlen=max_len)
-    y_train = to_categorical(y_train, num_classes=2)
-    y_test = to_categorical(y_test, num_classes=2)
-    #LSTM
-    model = LSTM_model()
-
-    #ฝึกโมเดล
-    model.fit(X_train, y_train, epochs=5, batch_size=1, validation_split=0.2)
-
+def process_shapefile_data(gdf):
+    # Extract centroid coordinates
+    gdf['Longitude'] = gdf.geometry.centroid.x
+    gdf['Latitude'] = gdf.geometry.centroid.y
     
+    # Generate random data for demonstration purposes
+    gdf['Risk'] = np.random.uniform(0, 100, len(gdf))
+    gdf['Day'] = np.random.randint(1, 16, len(gdf))
+    gdf['Size'] = np.random.randint(100, 1000, len(gdf))
+    gdf['Carbon'] = gdf['Size'] * 8  # 8 tons of carbon per rai
+    
+    # Assign area names based on the closest Thai province
+    gdf['Area'] = gdf.apply(lambda row: min(THAI_PROVINCES.items(), key=lambda x: ((x[1][0] - row['Latitude'])**2 + (x[1][1] - row['Longitude'])**2)**0.5)[0], axis=1)
+    
+    return gdf
 
-    #ประเมินผลโมเดล
-    score = model.evaluate(X_test, y_test)
-    print(f"Test accuracy: {score[1]}")
-
-    return score
+def read_shapefile_data():
+    hotspot_df = pd.read_csv(r'C:\Users\User\Documents\hotspotsugarcrane_lat_long.csv')
+    return hotspot_df
 
 def main():
     
@@ -229,36 +183,34 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("Input")
-        uploaded_file = st.file_uploader("Drop shapefile here (as .zip)", type="zip")
+        '''
+        uploaded_file = st.file_uploader("Upload shapefile (as .zip)", type="zip")
         
         if uploaded_file is not None:
             try:
                 gdf = read_shapefile(uploaded_file)
                 if 'geometry' in gdf.columns:
-                    st.session_state.data = gdf
+                    processed_gdf = process_shapefile_data(gdf)
                     st.success("Imported shapefile successfully")
                 else:
                     st.error("The shapefile must contain a 'geometry' column.")
             except Exception as e:
                 st.error(f"Error reading shapefile: {e}")
-        elif 'data' not in st.session_state:
-            st.session_state.data = generate_sample_data()
-        
+            
         run_button = st.button("Run Analysis")
+        '''
     
     # Main content
     st.title("Hotspot Prediction")
-    
-     # Province selection with dropdown
+    filtered_data = read_shapefile_data()
+    # Province selection with dropdown
     selected_province = st.selectbox("Choose a province:", ["All Provinces"] + list(THAI_PROVINCES.keys()))
 
     # Filter data based on selection
     if selected_province and selected_province != "All Provinces":
-        filtered_data = st.session_state.data[st.session_state.data['Area'] == selected_province]
         center_lat, center_lon = THAI_PROVINCES[selected_province]
         zoom_start = 16  # Closer zoom for a specific province
     else:
-        filtered_data = st.session_state.data
         center_lat, center_lon = 13.7563, 100.5018  # Center of Thailand
         zoom_start = 6  # Default zoom for all of Thailand
 
@@ -270,35 +222,36 @@ def main():
         m = folium.Map(location=[center_lat, center_lon], zoom_start=zoom_start)
         
         for _, row in filtered_data.iterrows():
-            color = 'red' if row['Risk'] > 66 else 'orange' if row['Risk'] > 33 else 'green'
+            #color = 'red' if row['Risk'] > 66 else 'orange' if row['Risk'] > 33 else 'green'
             
             # Add circle with 500m radius (more transparent)
+            
             folium.Circle(
-                location=[row['Latitude'], row['Longitude']],
+                location=[row['LATITUDE'], row['LONGITUDE']],
                 radius=500,  # 500 meters
-                color=color,
+                color='red',
                 weight=2,  # Slightly thicker border for visibility
                 fill=True,
-                fill_color=color,
-                fill_opacity=0.1,  # Increased transparency
-                popup=f"Area: {row['Area']}<br>Risk: {row['Risk']:.2f}%<br>Size: {row['Size']} rai"
-            ).add_to(m)
-            
-            # Add center point
-            folium.CircleMarker(
-                location=[row['Latitude'], row['Longitude']],
-                radius=3,  # Slightly larger for better visibility
-                color='red',
-                fill=True,
                 fill_color='red',
-                fill_opacity=1,
-                popup=f"Center of {row['Area']}<br>Risk: {row['Risk']:.2f}%"
+                fill_opacity=0.1,  # Increased transparency
+                #popup=f"Area: {row['Area']}<br>Risk: {row['Risk']:.2f}%<br>Size: {row['Size']} rai"
             ).add_to(m)
+           
+            # Add center point
+            #folium.CircleMarker(
+                #location=[row['LATITUDE'], row['LONGITUDE']],
+                #radius=500,  # Slightly larger for better visibility
+                #color='red',
+                #fill=True,
+                #fill_color='red',
+                #fill_opacity=1,
+                #popup=f"Center of {row['Area']}<br>Risk: {row['Risk']:.2f}%"
+            #).add_to(m)
         
         folium_static(m, width=800, height=400)
         
         # Amount of net carbon
-        st.subheader("Amount of net carbon (8 ton/rai)")
+        """st.subheader("Amount of net carbon (8 ton/rai)")
         fig = px.bar(filtered_data, x='Area', y='Carbon', color='Risk',
                      labels={'Carbon': 'Net Carbon (tons)', 'Area': 'Province'},
                      title='Net Carbon by Province',
@@ -310,9 +263,9 @@ def main():
             paper_bgcolor='rgba(0,0,0,0)',
             font_color='#ffffff'
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True)"""
     
-    with col2:
+    """with col2:
         st.markdown('<h3 class="dashboard-title">Top 20 Fire Risk Areas (Next 16 Days)</h3>', unsafe_allow_html=True)
         st.markdown('<div class="scrollable-risk-area">', unsafe_allow_html=True)
         
@@ -329,17 +282,16 @@ def main():
                 risk_class = "risk-low"
             
             st.markdown(f"""
-            <div class="risk-item {risk_class}">
-                <span class="risk-value">Risk: {row['Risk']:.2f}%</span><br>
-                <strong>{row['Area']}</strong><br>
-                Day: {row['Day']} | Size: {row['Size']} rai
-            </div>
-            """, unsafe_allow_html=True)
+            #<div class="risk-item {risk_class}">
+                #<span class="risk-value">Risk: {row['Risk']:.2f}%</span><br>
+                #<strong>{row['Area']}</strong><br>
+                #Day: {row['Day']} | Size: {row['Size']} rai
+            #</div>
+            #""", unsafe_allow_html=True)
         
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # if run_button:
-    #     model()
-
+        #st.markdown('</div>', unsafe_allow_html=True)
+        
 if __name__ == "__main__":
     main()
+
+    
