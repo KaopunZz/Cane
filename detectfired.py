@@ -121,9 +121,9 @@ def process_shapefile_data(gdf):
     
     return gdf
 
-def read_shapefile_data():
-    hotspot_df = pd.read_csv(r'C:\Users\User\Documents\hotspotsugarcrane_lat_long.csv')
-    return hotspot_df
+
+def read_shapefile_data(file_path):
+    return pd.read_csv(file_path)
 
 def main():
     
@@ -202,14 +202,28 @@ def main():
     
     # Main content
     st.title("Hotspot Prediction")
-    filtered_data = read_shapefile_data()
+
+
     # Province selection with dropdown
     selected_province = st.selectbox("Choose a province:", ["All Provinces"] + list(THAI_PROVINCES.keys()))
 
+    # Add file selection dropdown
+    selected_file = st.selectbox(
+        "Choose a data file:",
+            ["2564", "2565", "2566"]
+    )
+
+     # Construct file path based on selected year
+    selected_file = f"C:\\cu\\Hotspot_latlong\\{selected_file}.csv"
+    
+    # Read the selected CSV file
+    filtered_data = read_shapefile_data(selected_file)
+
+    
     # Filter data based on selection
     if selected_province and selected_province != "All Provinces":
         center_lat, center_lon = THAI_PROVINCES[selected_province]
-        zoom_start = 16  # Closer zoom for a specific province
+        zoom_start = 10  # Closer zoom for a specific province
     else:
         center_lat, center_lon = 13.7563, 100.5018  # Center of Thailand
         zoom_start = 6  # Default zoom for all of Thailand
@@ -238,15 +252,15 @@ def main():
             ).add_to(m)
            
             # Add center point
-            #folium.CircleMarker(
-                #location=[row['LATITUDE'], row['LONGITUDE']],
-                #radius=500,  # Slightly larger for better visibility
-                #color='red',
-                #fill=True,
-                #fill_color='red',
-                #fill_opacity=1,
+            folium.CircleMarker(
+                location=[row['LATITUDE'], row['LONGITUDE']],
+                radius=0.5,  # Slightly larger for better visibility
+                color='red',
+                fill=True,
+                fill_color='red',
+                fill_opacity=1,
                 #popup=f"Center of {row['Area']}<br>Risk: {row['Risk']:.2f}%"
-            #).add_to(m)
+            ).add_to(m)
         
         folium_static(m, width=800, height=400)
         
