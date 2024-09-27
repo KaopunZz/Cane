@@ -279,18 +279,38 @@ def main():
                 fill_color='red',
                 fill_opacity=0.1,
             ).add_to(m)
+            folium.CircleMarker(
+                location=[row['LATITUDE'], row['LONGITUDE']],
+                radius=0.5,  # Slightly larger for better visibility
+                color='red',
+                fill=True,
+                fill_color='red',
+                fill_opacity=1,
+            ).add_to(m)
         
         folium_static(m, width=1200, height=600)
 
-        # Carbon emission metric moved here
+        # Carbon emission metric
         farm = pd.read_csv('sample.csv')
         st.session_state.total_emission = emission_calculation(sum(farm['Shape_Area']))
+        st.session_state.reduced_emission = st.session_state.total_emission / 10
+
+
         st.markdown(f"""
         <div class="metric-container">
             <div class="metric-value">{st.session_state.total_emission:,.0f}</div>
             <div class="metric-label">Total Carbon Emission (kg CO2e)</div>
         </div>
         """, unsafe_allow_html=True)
+
+        # Reduced Carbon Emission banner
+        st.markdown(f"""
+        <div class="metric-container" style="margin-top: 20px;">
+            <div class="metric-value" style="color: #4dff4d;">{st.session_state.reduced_emission:,.0f}</div>
+            <div class="metric-label">Reduced Carbon Emission (kg CO2e)</div>
+        </div>
+        """, unsafe_allow_html=True)
+
 
     with col2:
         st.markdown('<h3 class="dashboard-title">Top 20 Fire Risk Areas (Next 16 Days)</h3>', unsafe_allow_html=True)
